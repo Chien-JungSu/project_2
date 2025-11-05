@@ -1,66 +1,87 @@
 import os
 import google.generativeai as genai
+from googleapiclient.discovery import build
 
-def setup_ai_brain():
+
+
+# --- Configuration ---
+# IMPORTANT: Set these environment variables in your terminal before running the script.
+# For example:
+# export GOOGLE_API_KEY="YOUR_GEMINI_API_KEY"
+# export SEARCH_API_KEY="YOUR_CUSTOM_SEARCH_API_KEY"
+# export SEARCH_ENGINE_ID="YOUR_SEARCH_ENGINE_ID"
+
+# Configure the Gemini API
+genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
+
+# --- Tool Definition: Web Search ---
+def google_search(query: str) -> list[dict]:
     """
-    Configures the Gemini API key from environment variables.
-    Exits the program if the key is not found.
+    Performs a Google search using the Custom Search JSON API and returns formatted results.
+
+    Args:
+        query: The search query string.
+
+    Returns:
+        A list of dictionaries, each containing the 'title', 'link', and 'snippet'
+        of a search result. Returns an empty list if an error occurs.
     """
+    print(f"⚡ Performing search for: '{query}'")
     try:
-        # Get the API key from the environment variable
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            print("❌ ERROR: GEMINI_API_KEY environment variable not found.")
-            print("Please set the GEMINI_API_KEY environment variable.")
-            exit()
-        
-        genai.configure(api_key=api_key)
-        print("✅ AI Brain configured successfully.")
-    except Exception as e:
-        print(f"❌ An error occurred during configuration: {e}")
-        exit()
+        search_api_key = os.environ.get("SEARCH_API_KEY")
+        search_engine_id = os.environ.get("SEARCH_ENGINE_ID")
 
-def ask_ai(question):
-    """
-    Sends a question to the Gemini model and returns the response.
-    """
-    try:
-        # Initialize the model
-        model = genai.GenerativeModel('gemini-2.0-flash-lite')
+        # Build the search service
+        service = build("customsearch", "v1", developerKey=search_api_key)
         
-        # Send the prompt and get the response
-        response = model.generate_content(question)
-        
-        return response.text
-    except Exception as e:
-        return f"❌ An error occurred while communicating with the AI: {e}"
+        # Execute the search
+        res = service.cse().list(q=query, cx=search_engine_id, num=5).execute() # Get top 5 results
 
-def main():
-    """
-    Main function to run the AI chat loop.
-    """
-    setup_ai_brain()
-    print("\n--- AI Brain Initialized ---")
-    print("Ask a question, or type 'exit' to quit.")
-    
-    while True:
-        user_question = input("\nYour Question: ")
-        
-        if user_question.lower() == 'exit':
-            print("👋 Goodbye!")
-            break
+        # Format the results
+        if 'items' in res:
+            print("💡 Raw search results found:")
+            formatted_results = [
+                {
+                    "title": item.get("title"),
+                    "link": item.get("link"),
+                    "snippet": item.get("snippet"),
+                }
+                for item in res["items"]
+            ]
+            print("💡 Raw search results found:")
+            print(formatted_results)
+            return formatted_results
+        else:
+            return []
             
-        if not user_question:
-            print("Please enter a question.")
-            continue
-            
-        print("\n🧠 Thinking...")
-        
-        # Get the answer from the AI
-        ai_response = ask_ai(user_question)
-        
-        print("\n🤖 AI Response:")
-        print(ai_response)
+    except Exception as e:
+        print(f"⚠️ An error occurred during search: {e}")
+        return []
 
-if __name__ == "__main__":
-    main()
+
+# --- Agent Setup ---
+# 1. Create the generative model
+model = genai.GenerativeModel(
+    model_name='gemini-2.0-flash-lite',
+    tools=[google_search] # Register the search function as a tool
+)
+
+# 2. Start a chat session with the model
+chat = model.start_chat(enable_automatic_function_calling=True)
+print("🚀 Your Smart Research Bot is online. Ask me anything!")
+
+# --- Main Interaction Loop ---
+while True:
+    user_question = input("\n> You: ")
+    if user_question.lower() in ['exit', 'quit']:
+        print("👋 Bot shutting down. Goodbye!")
+        break
+
+    # Send the user's question to the agent
+    response = chat.send_message(user_question)
+
+    # The agent will automatically call the google_search tool if needed.
+    # The framework handles the tool call and response.
+
+    # Print the final, summarized answer from the agent
+    print(f"\n🤖 Bot: {response.text}")
